@@ -14,7 +14,7 @@ If the user wishes to use file-based authentication, they should create a text f
 data = getWRDS("phlx.coph")
 ```
 
-The `getWRDS` function returns data from WRDS by identifier. In this example, we use `phlx.coph`, an example dataset. This identifier follows the format `identifier.product`. You can find a dataset's identifier and product names on its Variable Descriptions page on the WRDS website.
+The `getWRDS` function returns data from WRDS by identifier. In this example, we use `phlx.coph`, an example dataset. This identifier follows the format `product.file`. You can find a dataset's product and file names on its Variable Descriptions page on the WRDS website.
 
 Note: by default, the `getWRDS` function pulls your API key from the `.wrdstoken` file in your home directory.
 
