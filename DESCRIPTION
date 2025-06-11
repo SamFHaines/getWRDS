@@ -4,7 +4,7 @@ Version: 0.1.1
 Authors@R: 
     person("Sam", "Haines", email = "sam@samuelhaines.com", role = c("cre", "aut"))
 Description: This package loads data from WRDS using their web API. This can make it easier to transition from a web query to R without having to use PostgreSQL syntax and, in cases where a web query is generated from multiple PostgreSQL tables, without having to worry about joining multiple files.
-License: use_mit_license()
+License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2
