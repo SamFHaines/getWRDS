@@ -17,6 +17,9 @@ getWRDS = function(identifier, filters = "", authentication = getTokenFromHome()
 
   url = getURL(identifier, filters, root)
 
+  cores = min(max(2, as.numeric(parallelly::availableCores()-2)), floor(count / 10000))
+  if(count < cores * 10000) multithread = F
+
   .do_work = function(u) {
     .loop = function(start = 0, stop = count) {
       retrieved_data = NULL
@@ -57,7 +60,6 @@ getWRDS = function(identifier, filters = "", authentication = getTokenFromHome()
     progress_bar = progressr::progressor(steps = count)
 
     if(multithread){
-      cores = max(2, as.numeric(parallelly::availableCores()-2))
       doFuture::registerDoFuture()
       future::plan("multisession", workers = cores)
       start_end = data.frame(start = seq(0, count, by=round(count/cores, -3)))
@@ -97,7 +99,7 @@ getWRDScount = function(identifier, filters = "", authentication = getTokenFromH
     "--quiet",
     "--header", shQuote(getAuthHeader(authentication)),
     "-O", "-",
-    shQuote(getURL(identifier = identifier, filters = filters, root = root))
+    shQuote(getURL(identifier = identifier, filters = filters, root = root, limit = 5))
   )
   raw_output <- system(cmd, intern = TRUE)
   json_string <- paste(raw_output, collapse = "\n")
