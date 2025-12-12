@@ -4,7 +4,7 @@
 \alias{getURL}
 \title{Returns WRDS url based on parameters}
 \usage{
-getURL(identifier, filters, root)
+getURL(identifier, filters, root, limit = 2000)
 }
 \description{
 Returns WRDS url based on parameters

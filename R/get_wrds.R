@@ -7,79 +7,80 @@
 #' @param authentication The user's WRDS API key, accessible at wrds-api.wharton.upenn.edu. By default, the function looks for a .wrdstoken file in user's home directory that contains the API key.
 #' @param root The root of your desired WRDS data's API endpoint. Usually either data or data-full. If one doesn't work, try the other.
 #' @param quiet When set to TRUE, suppresses the progress bar indicating download status.
-#' @param multithread When set to TRUE, downloads the dataset in chunks to improve performance. The number of chunks depends on your machine's available cores.
+#' @param multithread Accepts either "auto" or "off" (default is "auto"). When set to "auto", getWRDS will determine if the dataset is large enough to justify the overhead of parallelization.
 #'
 #' @import foreach
 #' @export
 getWRDS = function(identifier, filters = "", authentication = getTokenFromHome(),
-                   root = "data", quiet = F, multithread = as.numeric(parallelly::availableCores()) >= 4) {
+                   root = "data", quiet = F, multithread = c("auto", "off")) {
   count = getWRDScount(identifier, filters, authentication, root)
 
-  url = getURL(identifier, filters, root)
+  url_vector = getURLvector(identifier, filters, root, count)
 
-  cores = min(max(2, as.numeric(parallelly::availableCores()-2)), floor(count / 10000))
-  if(count < cores * 10000) multithread = F
+  if (multithread[1] == "auto") {
+    available_cores = as.numeric(parallelly::availableCores())
+    use_cores = max(min(floor(length(url_vector) / 2), available_cores - 1), 1)
+  } else {
+    use_cores = 1
+  }
 
-  .do_work = function(u) {
-    .loop = function(start = 0, stop = count) {
-      retrieved_data = NULL
-      if (start > 0) u = paste0(u, "&offset=", format(start, scientific = F))
-      while(!is.null(u)) {
-        if(!is.null(retrieved_data)) {
-          if(nrow(retrieved_data) >= stop - start - 1) return(retrieved_data)
-        }
-        cmd <- paste(
-          "wget",
-          "--quiet",
-          "--header", shQuote(getAuthHeader(authentication)),
-          "-O", "-",
-          shQuote(u)
-        )
+  use_multithread = as.logical(use_cores > 1)
 
-        raw_output <- system(cmd, intern = TRUE)
-        json_string <- paste(raw_output, collapse = "\n")
-        parsed_data <- jsonlite::fromJSON(json_string)
+  .fetch_chunk = function(.url, .progress_bar = NULL, .curl_handle = NULL) {
+    if (is.null(.curl_handle)) {
+      .curl_handle = curl::new_handle(useragent = "Lynx")
+      curl::handle_setheaders(.curl_handle, Authorization = getAuthHeader(authentication))
+    }
+    .this_response = curl::curl_fetch_memory(.url, handle = .curl_handle)
+    .this_parsed = jsonlite::fromJSON(rawToChar(.this_response$content))
+    if (!is.null(.progress_bar)) .progress_bar(amount = nrow(.this_parsed$results))
+    return(.this_parsed$results)
+  }
 
-        if(!is.null(retrieved_data)){
-          retrieved_data <- rbind(retrieved_data, parsed_data$results)
-        } else {
-          retrieved_data <- parsed_data$results
-        }
-        progress_bar(amount = nrow(parsed_data$results))
-        u <- parsed_data$`next`
-      }
-      return(retrieved_data)
+  .do_single_thread = function(.progress_bar = NULL) {
+    .curl_handle = curl::new_handle(useragent = "Lynx")
+    curl::handle_setheaders(.curl_handle, Authorization = getAuthHeader(authentication))
+
+    .fetched = vector("list", length(url_vector))
+
+    for (i in seq_along(url_vector)) {
+      .fetched[[i]] = .fetch_chunk(url_vector[i], .progress_bar, .curl_handle)
     }
 
+    return(data.table::rbindlist(.fetched, use.names = T, fill = T))
+  }
+
+  .do_multi_thread = function(.progress_bar = NULL) {
+    future::plan("multisession", workers = use_cores)
+    .fetched = future.apply::future_lapply(
+      url_vector,
+      .fetch_chunk,
+      .progress_bar = .progress_bar,
+      future.packages = c("curl", "jsonlite", "getWRDS")
+    )
+    return(data.table::rbindlist(.fetched, use.names = T, fill = T))
+  }
+
+  .do_work = function(.progress_bar = NULL) {
+    if (use_multithread) return(.do_multi_thread(.progress_bar))
+    return(.do_single_thread(.progress_bar))
+  }
+
+  cat(paste0(
+    "Downloading ", identifier, " from WRDS (", count, " observations found)... \n"
+  ))
+
+  if (!quiet) {
+    progressr::handlers(global = T)
     if (length(progressr::handlers()) == 0) {
       progressr::handlers("txtprogressbar")
     }
-    cat(paste0(
-      "Downloading ", identifier, " from WRDS (", count, " observations found)... \n"
-    ))
-    progress_bar = progressr::progressor(steps = count)
-
-    if(multithread){
-      doFuture::registerDoFuture()
-      future::plan("multisession", workers = cores)
-      start_end = data.frame(start = seq(0, count, by=round(count/cores, -3)))
-      start_end$end = c(start_end$start[-1], count)
-      return(
-        foreach::foreach(i = iterators::iter(start_end, by="row"), .combine = "rbind", .export = c("u", "authentication"), .packages = c("getWRDS", "foreach")) %dopar% {
-          .loop(start = i$start, stop = i$end)
-        }
-      )
-    } else {
-      return(.loop())
-    }
-  }
-
-  if(!quiet) {
     progressr::with_progress({
-      return(.do_work(url))
+      progress_bar = progressr::progressor(steps = count)
+      return(.do_work(.progress_bar = progress_bar))
     })
   } else {
-    return(.do_work(url))
+    return(.do_work())
   }
 }
 
@@ -94,17 +95,14 @@ getWRDS = function(identifier, filters = "", authentication = getTokenFromHome()
 #' @export
 getWRDScount = function(identifier, filters = "", authentication = getTokenFromHome(),
                         root = "data") {
-  cmd <- paste(
-    "wget",
-    "--quiet",
-    "--header", shQuote(getAuthHeader(authentication)),
-    "-O", "-",
-    shQuote(getURL(identifier = identifier, filters = filters, root = root, limit = 5))
-  )
-  raw_output <- system(cmd, intern = TRUE)
-  json_string <- paste(raw_output, collapse = "\n")
-  parsed_data <- jsonlite::fromJSON(json_string)
-  return(parsed_data$count)
+  .curl_handle = curl::new_handle(useragent = "Lynx")
+  curl::handle_setheaders(.curl_handle, Authorization = getAuthHeader(authentication))
+  .fetched_single = curl::curl_fetch_memory(getURL(identifier = identifier,
+                                                   filters = filters,
+                                                   root = root,
+                                                   limit = 5), handle = .curl_handle)
+  .parsed_single = jsonlite::fromJSON(rawToChar(.fetched_single$content))
+  return(.parsed_single$count)
 }
 
 #' Apply filters to WRDS query
@@ -124,6 +122,7 @@ applyFilters = function(...){
 #' @param x The name of the variable on which the condition should be evaluated
 #' @param condition The value to which the filter should compare
 #' @export
+#' @importFrom utils URLencode
 filter_lt = function(x, condition) {
   return(paste0(x, "__lt=", URLencode(condition)))
 }
@@ -135,6 +134,7 @@ filter_lt = function(x, condition) {
 #' @param x The name of the variable on which the condition should be evaluated
 #' @param condition The value to which the filter should compare
 #' @export
+#' @importFrom utils URLencode
 filter_exact = function(x, condition) {
   return(paste0(x, "__exact=", URLencode(condition)))
 }
@@ -146,6 +146,7 @@ filter_exact = function(x, condition) {
 #' @param x The name of the variable on which the condition should be evaluated
 #' @param condition The value to which the filter should compare
 #' @export
+#' @importFrom utils URLencode
 filter_gt = function(x, condition) {
   return(paste0(x, "__gt=", URLencode(condition)))
 }
@@ -157,6 +158,7 @@ filter_gt = function(x, condition) {
 #' @param x The name of the variable on which the condition should be evaluated
 #' @param condition The value to which the filter should compare
 #' @export
+#' @importFrom utils URLencode
 filter_lte = function(x, condition) {
   return(paste0(x, "__lte=", URLencode(condition)))
 }
@@ -168,6 +170,7 @@ filter_lte = function(x, condition) {
 #' @param x The name of the variable on which the condition should be evaluated
 #' @param condition The value to which the filter should compare
 #' @export
+#' @importFrom utils URLencode
 filter_gte = function(x, condition) {
   return(paste0(x, "__gte=", URLencode(condition)))
 }
@@ -179,6 +182,7 @@ filter_gte = function(x, condition) {
 #' @param x The name of the variable on which the condition should be evaluated
 #' @param condition The value to which the filter should compare
 #' @export
+#' @importFrom utils URLencode
 filter_contains = function(x, condition) {
   return(paste0(x, "__contains=", URLencode(condition)))
 }
@@ -190,6 +194,7 @@ filter_contains = function(x, condition) {
 #' @param x The name of the variable on which the condition should be evaluated
 #' @param condition The value to which the filter should compare
 #' @export
+#' @importFrom utils URLencode
 filter_startswith = function(x, condition) {
   return(paste0(x, "__startswith=", URLencode(condition)))
 }
@@ -201,6 +206,7 @@ filter_startswith = function(x, condition) {
 #' @param x The name of the variable on which the condition should be evaluated
 #' @param condition The value to which the filter should compare
 #' @export
+#' @importFrom utils URLencode
 filter_endswith = function(x, condition) {
   return(paste0(x, "__endswith=", URLencode(condition)))
 }

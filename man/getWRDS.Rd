@@ -10,7 +10,7 @@ getWRDS(
   authentication = getTokenFromHome(),
   root = "data",
   quiet = F,
-  multithread = as.numeric(parallelly::availableCores()) >= 4
+  multithread = c("auto", "off")
 )
 }
 \arguments{
@@ -24,7 +24,7 @@ getWRDS(
 
 \item{quiet}{When set to TRUE, suppresses the progress bar indicating download status.}
 
-\item{multithread}{When set to TRUE, downloads the dataset in chunks to improve performance. The number of chunks depends on your machine's available cores.}
+\item{multithread}{Accepts either "auto" or "off" (default is "auto"). When set to "auto", getWRDS will determine if the dataset is large enough to justify the overhead of parallelization.}
 }
 \description{
 Returns WRDS data based on user query
