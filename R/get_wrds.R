@@ -105,6 +105,27 @@ getWRDScount = function(identifier, filters = "", authentication = getTokenFromH
   return(.parsed_single$count)
 }
 
+#' Get columns to be returned in WRDS query
+#'
+#' Returns a vector containing the names of the columns in the requested dataset
+#'
+#' @param identifier A string of format product.file. Product and file can be found on the Variable Descriptions page of your dataset in WRDS
+#' @param filters A string in URL format specifying filters. Can easily be generated using the applyFilters function.
+#' @param authentication The user's WRDS API key, accessible at wrds-api.wharton.upenn.edu. By default, the function looks for a .wrdstoken file in user's home directory that contains the API key.
+#' @param root The root of your desired WRDS data's API endpoint. Usually either data or data-full. If one doesn't work, try the other.
+#' @export
+getWRDScolnames = function(identifier, filters = "", authentication = getTokenFromHome(),
+                        root = "data") {
+  .curl_handle = curl::new_handle(useragent = "Lynx")
+  curl::handle_setheaders(.curl_handle, Authorization = getAuthHeader(authentication))
+  .fetched_single = curl::curl_fetch_memory(getURL(identifier = identifier,
+                                                   filters = filters,
+                                                   root = root,
+                                                   limit = 5), handle = .curl_handle)
+  .parsed_single = jsonlite::fromJSON(rawToChar(.fetched_single$content))
+  return(colnames(.parsed_single$results))
+}
+
 #' Apply filters to WRDS query
 #'
 #' A helper function to easily specify one or several filters. All specified filters are joined by "and" (i.e., all must be true).
