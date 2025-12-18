@@ -4,7 +4,7 @@
 \alias{getURLvector}
 \title{Returns WRDS url vector based on parameters}
 \usage{
-getURLvector(identifier, filters, root, count, limit = 2000)
+getURLvector(identifier, filters, root, count, limit = 20000)
 }
 \description{
 Returns WRDS url vector based on parameters

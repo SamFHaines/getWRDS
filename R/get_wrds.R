@@ -19,22 +19,31 @@ getWRDS = function(identifier, filters = "", authentication = getTokenFromHome()
 
   if (multithread[1] == "auto") {
     available_cores = as.numeric(parallelly::availableCores())
-    use_cores = max(min(floor(length(url_vector) / 2), available_cores - 1), 1)
+    use_cores = max(min(length(url_vector), available_cores - 1), 1)
   } else {
     use_cores = 1
   }
 
   use_multithread = as.logical(use_cores > 1)
 
-  .fetch_chunk = function(.url, .progress_bar = NULL, .curl_handle = NULL) {
+  .fetch_chunk <- function(.url, .progress_bar = NULL, .curl_handle = NULL, .retry_count = 0) {
+    if (.retry_count > 10) stop(paste0("ERROR: Failed to retrieve ", .url, " after 10 attempts."))
+    if (.retry_count > 0) Sys.sleep(2 * .retry_count)
+
     if (is.null(.curl_handle)) {
       .curl_handle = curl::new_handle(useragent = "Lynx")
       curl::handle_setheaders(.curl_handle, Authorization = getAuthHeader(authentication))
     }
+
     .this_response = curl::curl_fetch_memory(.url, handle = .curl_handle)
-    .this_parsed = jsonlite::fromJSON(rawToChar(.this_response$content))
-    if (!is.null(.progress_bar)) .progress_bar(amount = nrow(.this_parsed$results))
-    return(.this_parsed$results)
+
+    tryCatch({
+      .this_parsed = jsonlite::fromJSON(rawToChar(.this_response$content))
+      if (!is.null(.progress_bar)) .progress_bar()
+      .this_parsed$results
+    }, error = function(e) {
+      .fetch_chunk(.url, .progress_bar, .curl_handle, .retry_count + 1)
+    })
   }
 
   .do_single_thread = function(.progress_bar = NULL) {
@@ -76,7 +85,7 @@ getWRDS = function(identifier, filters = "", authentication = getTokenFromHome()
       progressr::handlers("txtprogressbar")
     }
     progressr::with_progress({
-      progress_bar = progressr::progressor(steps = count)
+      progress_bar = progressr::progressor(steps = length(url_vector))
       return(.do_work(.progress_bar = progress_bar))
     })
   } else {
@@ -115,7 +124,7 @@ getWRDScount = function(identifier, filters = "", authentication = getTokenFromH
 #' @param root The root of your desired WRDS data's API endpoint. Usually either data or data-full. If one doesn't work, try the other.
 #' @export
 getWRDScolnames = function(identifier, filters = "", authentication = getTokenFromHome(),
-                        root = "data") {
+                           root = "data") {
   .curl_handle = curl::new_handle(useragent = "Lynx")
   curl::handle_setheaders(.curl_handle, Authorization = getAuthHeader(authentication))
   .fetched_single = curl::curl_fetch_memory(getURL(identifier = identifier,

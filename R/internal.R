@@ -18,7 +18,7 @@ getURL = function(identifier, filters, root, limit = 2000) {
 
 #' Returns WRDS url vector based on parameters
 #' @keywords internal
-getURLvector = function(identifier, filters, root, count, limit = 2000) {
+getURLvector = function(identifier, filters, root, count, limit = 20000) {
   base_url = paste0(
     "https://wrds-api.wharton.upenn.edu/",
     root,
