@@ -13,9 +13,10 @@
 #' @export
 getWRDS = function(identifier, filters = "", authentication = getTokenFromHome(),
                    root = "data", quiet = F, multithread = c("auto", "off")) {
-  count = getWRDScount(identifier, filters, authentication, root)
+  .nrow = getWRDScount(identifier, filters, authentication, root)
+  .ncol = length(getWRDScolnames(identifier, filters, authentication, root))
 
-  url_vector = getURLvector(identifier, filters, root, count)
+  url_vector = getURLvector(identifier, filters, root, .nrow, .ncol)
 
   if (multithread[1] == "auto") {
     available_cores = as.numeric(parallelly::availableCores())
@@ -76,7 +77,7 @@ getWRDS = function(identifier, filters = "", authentication = getTokenFromHome()
   }
 
   cat(paste0(
-    "Downloading ", identifier, " from WRDS (", count, " observations found)... \n"
+    "Downloading ", identifier, " from WRDS (", .nrow, " observations found)... \n"
   ))
 
   if (!quiet) {
